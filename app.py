@@ -1,5 +1,5 @@
 import os
-import io
+import openpyxl
 import json
 import base64
 import requests
@@ -7,14 +7,14 @@ import pandas as pd
 from datetime import datetime
 from flask import Flask, request
 import google.generativeai as genai
+from dotenv import load_dotenv
 
-# --- Environment Variables ---
-# IMPORTANT: You must replace these with your actual tokens and IDs.
-# For security, these should be in a separate config file or environment variables in a production app.
-WHATSAPP_TOKEN = "EAAZAN14jeOmkBPaLpGkAZAyhRG3xL1d7F1cbF6ZCGcS2qlXrYxUnZCZC3c9FJjVWHecs5xVhN2ZAg2s08kWaa2yBmwZAgpAhiZAIxIV0iJaPmvRa5CqbiTkBLNLF6iWcCX1iTmVEvpuBDZAranWLqF6RPvhFc4glk67PBqRQTjvrPMLsfAKVKKvTumyYJbSVxZC1TLGTrYXZAIgySrGZBf1ZASM9VqHH6vsNiK6ZCOhgraEyqhZCOw2GwZDZD"
-WHATSAPP_PHONE_NUMBER_ID = "713297775208207"
-GEMINI_API_KEY = "AIzaSyD0jRXRDXkQ0psbb8znka2WA_zqptHnXgQ"
-VERIFY_TOKEN = "myapplicationprocessing"
+load_dotenv()
+
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 # --- Flask App Setup ---
 app = Flask(__name__)
@@ -38,21 +38,24 @@ def save_to_excel(data):
     """
     file_path = "bills.xlsx"
     try:
-        # Check if the file exists and has data
+        # Check if the file exists
         if os.path.exists(file_path):
-            df_existing = pd.read_excel(file_path)
-            if not df_existing.empty:
+            try:
+                # Read the existing data, specifying the engine
+                df_existing = pd.read_excel(file_path, engine='openpyxl')
                 # Concatenate the new data with the existing data
                 df = pd.concat([df_existing, pd.DataFrame([data])], ignore_index=True)
-            else:
-                # Create a new DataFrame if the file is empty
+            except Exception as e:
+                # If there's an error reading the file (e.g., it's empty),
+                # just create a new DataFrame with the new data
+                print(f"File exists but an error occurred reading it: {e}. Creating a new file.")
                 df = pd.DataFrame([data])
         else:
             # Create a new DataFrame if the file doesn't exist
             df = pd.DataFrame([data])
 
-        # Save the DataFrame to the Excel file
-        df.to_excel(file_path, index=False)
+        # Save the DataFrame to the Excel file, specifying the engine
+        df.to_excel(file_path, index=False, engine='openpyxl')
         print("Data saved to Excel successfully.")
     except Exception as e:
         print(f"Error saving to Excel: {e}")
@@ -81,10 +84,9 @@ def send_whatsapp_message(user_id, text):
 
 # Function to encode image URL content as base64 for Gemini API
 def get_image_as_base64(image_url):
-    """Downloads an image from a URL and returns its base64 string representation."""
     try:
-        response = requests.get(image_url)
-        response.raise_for_status()
+        response = requests.get(image_url, headers={'Authorization': f'Bearer {WHATSAPP_TOKEN}'})
+        response.raise_for_status() # This will raise an HTTPError for bad responses (4xx or 5xx)
         return base64.b64encode(response.content).decode('utf-8')
     except Exception as e:
         print(f"Error downloading image: {e}")
@@ -165,7 +167,7 @@ def webhook():
                                                 "text": "Extract the date, total amount, and vendor name from this bill. Return the data as a JSON object with keys 'date', 'total', and 'vendor'. If any information is missing, use 'null'."}
                                         ]
 
-                                        model = genai.GenerativeModel("gemini-1.5-pro")
+                                        model = genai.GenerativeModel("gemini-1.5-flash")
 
                                         try:
                                             response = model.generate_content(prompt_parts)
